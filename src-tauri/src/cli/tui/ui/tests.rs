@@ -2560,6 +2560,40 @@ fn text_input_overlay_renders_inner_input_box() {
 }
 
 #[test]
+fn prompts_page_uses_space_activate_and_add_key() {
+    let _lock = lock_env();
+    let _no_color = EnvGuard::set("NO_COLOR", "1");
+
+    let mut app = App::new(Some(AppType::Claude));
+    app.route = Route::Prompts;
+    app.focus = Focus::Content;
+
+    let mut data = minimal_data(&app.app_type);
+    data.prompts.rows.push(crate::cli::tui::data::PromptRow {
+        id: "work".to_string(),
+        prompt: crate::prompt::Prompt {
+            id: "work".to_string(),
+            name: "Work Prompt".to_string(),
+            content: "Use concise answers.".to_string(),
+            description: None,
+            enabled: true,
+            created_at: None,
+            updated_at: None,
+        },
+    });
+
+    let buf = render(&app, &data);
+    let all = all_text(&buf);
+
+    assert!(all.contains("Prompts"));
+    assert!(all.contains(AppType::Claude.as_str()));
+    assert!(all.contains("Space=activate"));
+    assert!(all.contains("a=add"));
+    assert!(!all.contains("c=create"));
+    assert!(all.contains(&texts::tui_prompts_summary(1, "Work Prompt")));
+}
+
+#[test]
 fn editor_unsaved_changes_confirm_overlay_shows_three_actions_and_is_compact() {
     let _lock = lock_env();
 

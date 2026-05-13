@@ -330,7 +330,7 @@ impl App {
     pub(crate) fn on_prompts_key(&mut self, key: KeyEvent, data: &UiData) -> Action {
         let visible = visible_prompts(&self.filter, data);
         match key.code {
-            KeyCode::Char('c') => {
+            KeyCode::Char('a') => {
                 self.open_prompt_create_name_input();
                 Action::None
             }
@@ -357,7 +357,7 @@ impl App {
                 });
                 Action::None
             }
-            KeyCode::Char('a') => {
+            KeyCode::Char(' ') => {
                 let Some(row) = visible.get(self.prompt_idx) else {
                     return Action::None;
                 };

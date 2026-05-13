@@ -384,6 +384,22 @@ pub fn tui_skills_empty_hint() -> &'static str {
     }
 }
 
+pub fn tui_prompt_no_active_summary() -> &'static str {
+    if is_chinese() {
+        "未激活"
+    } else {
+        "no active prompt"
+    }
+}
+
+pub fn tui_prompts_summary(count: usize, active: &str) -> String {
+    if is_chinese() {
+        format!("{count} 个提示词 · 当前: {active}")
+    } else {
+        format!("{count} prompts · active: {active}")
+    }
+}
+
 pub fn tui_config_item_export() -> &'static str {
     if is_chinese() {
         "导出配置"

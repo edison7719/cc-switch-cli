@@ -2420,7 +2420,7 @@ mod tests {
     }
 
     #[test]
-    fn prompts_a_key_triggers_activate_action() {
+    fn prompts_space_key_triggers_activate_action() {
         let mut app = App::new(Some(AppType::Claude));
         app.route = Route::Prompts;
         app.focus = Focus::Content;
@@ -2439,7 +2439,7 @@ mod tests {
             },
         });
 
-        let action = app.on_key(key(KeyCode::Char('a')), &data);
+        let action = app.on_key(key(KeyCode::Char(' ')), &data);
         assert!(matches!(action, Action::PromptActivate { id } if id == "pr1"));
     }
 
@@ -7983,12 +7983,12 @@ mod tests {
     }
 
     #[test]
-    fn prompts_c_opens_create_name_input() {
+    fn prompts_a_opens_create_name_input() {
         let mut app = App::new(Some(AppType::Claude));
         app.route = Route::Prompts;
         app.focus = Focus::Content;
 
-        let action = app.on_key(key(KeyCode::Char('c')), &UiData::default());
+        let action = app.on_key(key(KeyCode::Char('a')), &UiData::default());
         assert!(matches!(action, Action::None));
         assert!(matches!(
             app.overlay,
