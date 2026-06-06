@@ -762,6 +762,7 @@ fn cache_invalidation_for_action(action: &Action) -> CacheInvalidation {
         | Action::ProviderDelete { .. }
         | Action::ProviderSetFailoverQueue { .. }
         | Action::ProviderMoveFailoverQueue { .. }
+        | Action::PricingDelete { .. }
         | Action::McpToggle { .. }
         | Action::McpSetApps { .. }
         | Action::McpDelete { .. }

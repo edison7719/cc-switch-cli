@@ -25,26 +25,73 @@ impl App {
                 }
                 Action::None
             }
-            KeyCode::Enter | KeyCode::Char('d') => self.open_pricing_detail(data),
+            KeyCode::Enter => {
+                self.open_pricing_edit_editor(data);
+                Action::None
+            }
+            KeyCode::Char('d') => {
+                self.open_pricing_delete_confirm(data);
+                Action::None
+            }
             KeyCode::Char('r') => Action::ReloadData,
             _ => Action::None,
         }
     }
 
-    pub(crate) fn on_pricing_detail_key(&mut self, key: KeyEvent, _model_id: &str) -> Action {
-        match key.code {
-            KeyCode::Char('r') => Action::ReloadData,
-            _ => Action::None,
-        }
-    }
-
-    fn open_pricing_detail(&mut self, data: &UiData) -> Action {
+    fn selected_pricing_row<'a>(&self, data: &'a UiData) -> Option<&'a data::ModelPricingRow> {
         let rows = visible_pricing_rows(&self.filter, data);
-        let Some(row) = rows.get(self.pricing.selected_idx) else {
-            return Action::None;
+        rows.get(self.pricing.selected_idx).copied()
+    }
+
+    fn open_pricing_edit_editor(&mut self, data: &UiData) {
+        let Some(row) = self.selected_pricing_row(data) else {
+            return;
         };
-        self.push_route_and_switch(Route::PricingDetail {
-            model_id: row.model_id.clone(),
-        })
+        let initial = serde_json::json!({
+            "model_id": row.model_id,
+            "display_name": row.display_name,
+            "input_cost_per_million": row.input_cost_per_million,
+            "output_cost_per_million": row.output_cost_per_million,
+            "cache_read_cost_per_million": row.cache_read_cost_per_million,
+            "cache_creation_cost_per_million": row.cache_creation_cost_per_million,
+        });
+        let initial = serde_json::to_string_pretty(&initial).unwrap_or_else(|_| "{}".to_string());
+        self.open_editor(
+            pricing_edit_title(&row.model_id),
+            EditorKind::Json,
+            initial,
+            EditorSubmit::PricingEdit {
+                model_id: row.model_id.clone(),
+            },
+        );
+    }
+
+    fn open_pricing_delete_confirm(&mut self, data: &UiData) {
+        let Some(row) = self.selected_pricing_row(data) else {
+            return;
+        };
+        self.overlay = Overlay::Confirm(ConfirmOverlay {
+            title: crate::t!("Delete Model Pricing", "删除模型定价").to_string(),
+            message: pricing_delete_message(&row.model_id),
+            action: ConfirmAction::PricingDelete {
+                model_id: row.model_id.clone(),
+            },
+        });
+    }
+}
+
+fn pricing_edit_title(model_id: &str) -> String {
+    if crate::cli::i18n::is_chinese() {
+        format!("编辑模型定价: {model_id}")
+    } else {
+        format!("Edit Model Pricing: {model_id}")
+    }
+}
+
+fn pricing_delete_message(model_id: &str) -> String {
+    if crate::cli::i18n::is_chinese() {
+        format!("确定删除模型定价 '{model_id}'？删除后会从定价列表中隐藏。")
+    } else {
+        format!("Delete model pricing '{model_id}'? It will be hidden from the pricing list.")
     }
 }

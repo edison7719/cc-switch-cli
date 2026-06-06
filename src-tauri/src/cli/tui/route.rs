@@ -8,7 +8,6 @@ pub enum Route {
     UsageLogs,
     UsageLogDetail { request_id: String },
     Pricing,
-    PricingDetail { model_id: String },
     Sessions,
     ProviderDetail { id: String },
     Mcp,

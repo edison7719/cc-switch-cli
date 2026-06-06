@@ -1,4 +1,4 @@
-use crate::cli::tui::data::{ModelPricingRow, UsageRangePreset};
+use crate::cli::tui::data::UsageRangePreset;
 
 use super::*;
 
@@ -32,7 +32,8 @@ pub(super) fn render_pricing(
             theme,
             &[
                 ("↑↓/Pg", texts::tui_key_select()),
-                ("Enter/d", texts::tui_key_details()),
+                ("Enter", texts::tui_key_edit()),
+                ("d", texts::tui_key_delete()),
                 ("/", texts::tui_filter_title()),
                 ("r", texts::tui_key_refresh()),
                 ("Esc", texts::tui_key_close()),
@@ -42,46 +43,6 @@ pub(super) fn render_pricing(
 
     render_summary_bar(frame, chunks[1], theme, pricing_summary_line(app, data));
     render_pricing_table(frame, app, data, chunks[2], theme);
-}
-
-pub(super) fn render_pricing_detail(
-    frame: &mut Frame<'_>,
-    app: &App,
-    data: &UiData,
-    area: Rect,
-    theme: &super::theme::Theme,
-    model_id: &str,
-) {
-    let outer = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Plain)
-        .border_style(pane_border_style(app, Focus::Content, theme))
-        .title(pricing_text("Model Pricing Detail", "模型定价详情"));
-    frame.render_widget(outer.clone(), area);
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
-        .split(outer.inner(area));
-
-    if app.focus == Focus::Content {
-        render_key_bar_center(
-            frame,
-            chunks[0],
-            theme,
-            &[
-                ("r", texts::tui_key_refresh()),
-                ("Esc", texts::tui_key_close()),
-            ],
-        );
-    }
-
-    let row = data
-        .pricing
-        .rows
-        .iter()
-        .find(|row| row.model_id == model_id);
-    render_pricing_detail_body(frame, row, chunks[1], theme);
 }
 
 fn render_pricing_table(
@@ -185,79 +146,6 @@ fn render_pricing_table(
     frame.render_stateful_widget(table, inset_left(area, CONTENT_INSET_LEFT), &mut state);
 }
 
-fn render_pricing_detail_body(
-    frame: &mut Frame<'_>,
-    row: Option<&ModelPricingRow>,
-    area: Rect,
-    theme: &super::theme::Theme,
-) {
-    let Some(row) = row else {
-        render_centered_pricing_lines(
-            frame,
-            area,
-            vec![Line::styled(
-                pricing_text(
-                    "This model is no longer in the pricing cache",
-                    "该模型已不在定价缓存中",
-                ),
-                Style::default().fg(theme.comment),
-            )],
-        );
-        return;
-    };
-
-    let lines = vec![
-        detail_line(pricing_text("Model", "模型"), &row.model_id, theme),
-        detail_line(pricing_text("Display", "显示名"), &row.display_name, theme),
-        detail_line(
-            pricing_text("Input / 1M", "输入 / 1M"),
-            format_price_per_million(&row.input_cost_per_million),
-            theme,
-        ),
-        detail_line(
-            pricing_text("Output / 1M", "输出 / 1M"),
-            format_price_per_million(&row.output_cost_per_million),
-            theme,
-        ),
-        detail_line(
-            pricing_text("Cache Read", "缓存读取"),
-            format_price_per_million(&row.cache_read_cost_per_million),
-            theme,
-        ),
-        detail_line(
-            pricing_text("Cache Create", "缓存创建"),
-            format_price_per_million(&row.cache_creation_cost_per_million),
-            theme,
-        ),
-        detail_line(
-            pricing_text("30d Requests", "30天请求"),
-            row.recent_request_count.to_string(),
-            theme,
-        ),
-        detail_line(
-            pricing_text("30d Tokens", "30天 Token"),
-            format_token_compact(row.recent_total_tokens),
-            theme,
-        ),
-        detail_line(
-            pricing_text("30d Cost", "30天费用"),
-            format_money(row.recent_total_cost_usd),
-            theme,
-        ),
-        detail_line(
-            pricing_text("Last Used", "最近使用"),
-            row.last_used_at
-                .map(format_pricing_time)
-                .unwrap_or_else(|| "-".to_string()),
-            theme,
-        ),
-    ];
-    frame.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: false }),
-        inset_left(area, CONTENT_INSET_LEFT),
-    );
-}
-
 fn pricing_summary_line(app: &App, data: &UiData) -> String {
     if current_pricing_is_loading(app, data) {
         return pricing_text("Loading...", "正在加载中...").to_string();
@@ -322,21 +210,6 @@ fn render_centered_pricing_lines(frame: &mut Frame<'_>, area: Rect, lines: Vec<L
     frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), centered);
 }
 
-fn detail_line(
-    label: &'static str,
-    value: impl AsRef<str>,
-    theme: &super::theme::Theme,
-) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("{label:<14}"), Style::default().fg(theme.dim)),
-        Span::raw(" "),
-        Span::styled(
-            value.as_ref().to_string(),
-            Style::default().fg(Color::White),
-        ),
-    ])
-}
-
 fn pricing_text(en: &'static str, zh: &'static str) -> &'static str {
     if i18n::is_chinese() {
         zh
@@ -378,12 +251,4 @@ fn format_token_compact(total: u64) -> String {
         return format!("{:.1}k", total as f64 / 1_000.0);
     }
     format!("{:.1}M", total as f64 / 1_000_000.0)
-}
-
-fn format_pricing_time(timestamp: i64) -> String {
-    Local
-        .timestamp_opt(timestamp, 0)
-        .single()
-        .map(|datetime| datetime.format("%Y/%m/%d %H:%M").to_string())
-        .unwrap_or_else(|| "-".to_string())
 }

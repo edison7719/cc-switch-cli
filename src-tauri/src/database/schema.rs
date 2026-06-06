@@ -1992,7 +1992,8 @@ impl Database {
     fn ensure_model_pricing_seeded_on_conn(conn: &Connection) -> Result<(), AppError> {
         // 每次启动都执行 INSERT OR IGNORE，增量追加新模型；仅修复仍等于旧内置值的定价。
         Self::seed_model_pricing(conn)?;
-        Self::repair_current_model_pricing(conn)
+        Self::repair_current_model_pricing(conn)?;
+        Self::prune_deleted_model_pricing_on_conn(conn)
     }
 
     // --- 辅助方法 ---

@@ -123,11 +123,9 @@ impl App {
         match route {
             Route::Main => NavItem::Main,
             Route::Providers | Route::ProviderDetail { .. } => NavItem::Providers,
-            Route::Usage
-            | Route::UsageLogs
-            | Route::UsageLogDetail { .. }
-            | Route::Pricing
-            | Route::PricingDetail { .. } => NavItem::Usage,
+            Route::Usage | Route::UsageLogs | Route::UsageLogDetail { .. } | Route::Pricing => {
+                NavItem::Usage
+            }
             Route::Sessions => NavItem::Sessions,
             Route::Mcp => NavItem::Mcp,
             Route::Prompts => NavItem::Prompts,
@@ -651,7 +649,6 @@ impl App {
             Route::UsageLogs => self.on_usage_logs_key(key, data),
             Route::UsageLogDetail { request_id } => self.on_usage_log_detail_key(key, &request_id),
             Route::Pricing => self.on_pricing_key(key, data),
-            Route::PricingDetail { model_id } => self.on_pricing_detail_key(key, &model_id),
             Route::Sessions => self.on_sessions_key(key, data),
             Route::Mcp => self.on_mcp_key(key, data),
             Route::Prompts => self.on_prompts_key(key, data),

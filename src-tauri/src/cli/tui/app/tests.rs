@@ -14069,7 +14069,7 @@ mod tests {
     }
 
     #[test]
-    fn pricing_shortcuts_select_and_open_detail_route() {
+    fn pricing_shortcuts_select_edit_and_delete() {
         let mut app = App::new(Some(AppType::Claude));
         app.route = Route::Pricing;
         app.focus = Focus::Content;
@@ -14091,15 +14091,34 @@ mod tests {
         assert_eq!(app.pricing.selected_idx, 1);
 
         let action = app.on_key(key(KeyCode::Enter), &data);
+        assert!(matches!(action, Action::None));
+        let Some(editor) = app.editor.as_ref() else {
+            panic!("expected pricing editor");
+        };
         assert!(matches!(
-            action,
-            Action::SwitchRoute(Route::PricingDetail { model_id })
-                if model_id == "claude-sonnet-4-5"
+            editor.submit,
+            EditorSubmit::PricingEdit { ref model_id } if model_id == "claude-sonnet-4-5"
         ));
+        assert!(editor.text().contains("\"input_cost_per_million\""));
+        assert!(matches!(app.route, Route::Pricing));
+        assert!(app.route_stack.is_empty());
+
+        app.editor = None;
+        let action = app.on_key(key(KeyCode::Char('e')), &data);
+        assert!(matches!(action, Action::None));
+        assert!(
+            app.editor.is_none(),
+            "pricing e shortcut should be disabled"
+        );
+
+        let action = app.on_key(key(KeyCode::Char('d')), &data);
+        assert!(matches!(action, Action::None));
         assert!(matches!(
-            app.route,
-            Route::PricingDetail { ref model_id } if model_id == "claude-sonnet-4-5"
+            app.overlay,
+            Overlay::Confirm(ConfirmOverlay {
+                action: ConfirmAction::PricingDelete { ref model_id },
+                ..
+            }) if model_id == "claude-sonnet-4-5"
         ));
-        assert_eq!(app.route_stack, vec![Route::Pricing]);
     }
 }

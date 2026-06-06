@@ -1678,3 +1678,70 @@ fn schema_model_pricing_is_seeded_on_init() {
         "新建数据库也应使用修正后的 DeepSeek 定价"
     );
 }
+
+#[test]
+fn model_pricing_delete_survives_reseed_until_user_upserts() {
+    let db = Database::memory().expect("create memory db");
+
+    assert!(db
+        .delete_model_pricing("gpt-5.4")
+        .expect("delete seeded pricing"));
+    db.ensure_model_pricing_seeded()
+        .expect("reseed after delete");
+
+    {
+        let conn = db.conn.lock().expect("lock conn");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM model_pricing WHERE model_id = 'gpt-5.4'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count deleted pricing");
+        assert_eq!(count, 0, "deleted built-in pricing should stay hidden");
+    }
+
+    let restored = ModelPricingUpdate::new("gpt-5.4", "GPT 5.4", "2", "8", "0.2", "0")
+        .expect("valid restored pricing");
+    db.upsert_model_pricing(&restored).expect("restore pricing");
+    db.ensure_model_pricing_seeded()
+        .expect("reseed after restore");
+
+    let conn = db.conn.lock().expect("lock conn");
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM model_pricing WHERE model_id = 'gpt-5.4'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count restored pricing");
+    assert_eq!(count, 1, "manual upsert should clear delete marker");
+}
+
+#[test]
+fn model_pricing_upsert_rejects_invalid_values() {
+    let db = Database::memory().expect("create memory db");
+    let invalid = ModelPricingUpdate {
+        model_id: "bad-model".to_string(),
+        display_name: "Bad Model".to_string(),
+        input_cost_per_million: "not-a-number".to_string(),
+        output_cost_per_million: "1".to_string(),
+        cache_read_cost_per_million: "0".to_string(),
+        cache_creation_cost_per_million: "0".to_string(),
+    };
+
+    assert!(db.upsert_model_pricing(&invalid).is_err());
+
+    let conn = db.conn.lock().expect("lock conn");
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM model_pricing WHERE model_id = 'bad-model'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count invalid pricing");
+    assert_eq!(count, 0, "invalid pricing should not be persisted");
+
+    assert!(ModelPricingUpdate::new("bad-negative", "Bad Negative", "-1", "1", "0", "0").is_err());
+    assert!(ModelPricingUpdate::new("", "Blank Model", "1", "1", "0", "0").is_err());
+}

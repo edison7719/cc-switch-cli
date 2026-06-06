@@ -406,6 +406,9 @@ pub enum ConfirmAction {
     PromptDelete {
         id: String,
     },
+    PricingDelete {
+        model_id: String,
+    },
     SessionDelete {
         key: String,
         provider_id: String,

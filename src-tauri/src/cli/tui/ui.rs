@@ -152,9 +152,6 @@ fn render_content(
             render_usage_log_detail(frame, app, data, content_area, theme, request_id)
         }
         Route::Pricing => render_pricing(frame, app, data, content_area, theme),
-        Route::PricingDetail { model_id } => {
-            render_pricing_detail(frame, app, data, content_area, theme, model_id)
-        }
         Route::Sessions => render_sessions(frame, app, data, content_area, theme),
         Route::Mcp => render_mcp(frame, app, data, content_area, theme),
         Route::Prompts => render_prompts(frame, app, data, content_area, theme),

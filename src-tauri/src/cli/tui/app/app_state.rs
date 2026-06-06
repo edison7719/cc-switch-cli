@@ -114,6 +114,9 @@ pub enum Action {
     UsageCustomRange {
         range: data::UsageCustomRange,
     },
+    PricingDelete {
+        model_id: String,
+    },
 
     ManagedAuthRefresh {
         auth_provider: String,

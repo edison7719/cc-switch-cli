@@ -18,6 +18,7 @@ mod config;
 mod editor;
 mod helpers;
 mod mcp;
+mod pricing;
 mod prompts;
 mod providers;
 mod settings;
@@ -41,7 +42,6 @@ fn normalize_route_for_app(app_type: &AppType, route: &super::route::Route) -> s
             | super::route::Route::UsageLogs
             | super::route::Route::UsageLogDetail { .. }
             | super::route::Route::Pricing
-            | super::route::Route::PricingDetail { .. }
             | super::route::Route::Sessions
             | super::route::Route::ConfigOpenClawWorkspace
             | super::route::Route::ConfigOpenClawDailyMemory
@@ -61,7 +61,6 @@ fn normalize_route_for_app(app_type: &AppType, route: &super::route::Route) -> s
             | super::route::Route::UsageLogs
             | super::route::Route::UsageLogDetail { .. }
             | super::route::Route::Pricing
-            | super::route::Route::PricingDetail { .. }
             | super::route::Route::Sessions
             | super::route::Route::Mcp
             | super::route::Route::HermesMemory
@@ -405,6 +404,7 @@ pub(crate) fn handle_action(
             claude_idx,
         ),
         Action::UsageCustomRange { .. } => Ok(()),
+        Action::PricingDelete { model_id } => pricing::delete(&mut ctx, model_id),
         Action::McpToggle { id, enabled } => mcp::toggle(&mut ctx, id, enabled),
         Action::McpSetApps { id, apps } => mcp::set_apps(&mut ctx, id, apps),
         Action::McpDelete { id } => mcp::delete(&mut ctx, id),

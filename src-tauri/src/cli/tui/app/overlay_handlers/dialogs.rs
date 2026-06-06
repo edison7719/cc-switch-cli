@@ -42,6 +42,9 @@ impl App {
                     }
                     ConfirmAction::McpDelete { id } => Action::McpDelete { id: id.clone() },
                     ConfirmAction::PromptDelete { id } => Action::PromptDelete { id: id.clone() },
+                    ConfirmAction::PricingDelete { model_id } => Action::PricingDelete {
+                        model_id: model_id.clone(),
+                    },
                     ConfirmAction::SessionDelete {
                         key,
                         provider_id,

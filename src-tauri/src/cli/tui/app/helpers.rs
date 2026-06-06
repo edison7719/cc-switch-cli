@@ -742,7 +742,6 @@ pub(crate) fn route_has_content_list(route: &Route) -> bool {
             | Route::UsageLogs
             | Route::UsageLogDetail { .. }
             | Route::Pricing
-            | Route::PricingDetail { .. }
             | Route::Sessions
             | Route::Mcp
             | Route::Prompts

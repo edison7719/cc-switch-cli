@@ -570,7 +570,11 @@ fn tui_pricing_renders_catalog_and_recent_usage_context() {
     assert!(all.contains("$2.00"), "{all}");
     assert!(all.contains("$8.00"), "{all}");
     assert!(all.contains("$0.420"), "{all}");
+    assert!(all.contains("Enter=edit"), "{all}");
+    assert!(!all.contains("Enter/e=edit"), "{all}");
+    assert!(all.contains("d=delete"), "{all}");
     assert!(all.contains("Esc=close"), "{all}");
+    assert!(!all.contains("details"), "{all}");
 }
 
 #[test]
@@ -617,39 +621,6 @@ fn tui_pricing_loading_state_keeps_unmatched_context_visible() {
     assert!(all.contains("$0.120 unmatched"), "{all}");
     assert!(all.contains("No model pricing rows found"), "{all}");
     assert!(!all.contains("Loading..."), "{all}");
-}
-
-#[test]
-fn tui_pricing_detail_renders_full_price_breakdown() {
-    let _lang = use_test_language(Language::English);
-
-    let mut app = App::new(Some(AppType::Claude));
-    app.route = Route::PricingDetail {
-        model_id: "gpt-5.4".to_string(),
-    };
-    app.focus = Focus::Content;
-    let mut data = minimal_data(&app.app_type);
-    data.pricing.rows.push(ModelPricingRow {
-        model_id: "gpt-5.4".to_string(),
-        display_name: "GPT 5.4".to_string(),
-        input_cost_per_million: "2".to_string(),
-        output_cost_per_million: "8".to_string(),
-        cache_read_cost_per_million: "0.125".to_string(),
-        cache_creation_cost_per_million: "1".to_string(),
-        recent_request_count: 12,
-        recent_total_tokens: 1_500,
-        recent_total_cost_usd: 0.42,
-        last_used_at: Some(1_780_617_600),
-    });
-
-    let all = all_text(&render_with_size(&app, &data, 140, 30));
-
-    assert!(all.contains("Model Pricing Detail"), "{all}");
-    assert!(all.contains("Input / 1M"), "{all}");
-    assert!(all.contains("$0.1250"), "{all}");
-    assert!(all.contains("30d Requests"), "{all}");
-    assert!(all.contains("1.5k"), "{all}");
-    assert!(all.contains("2026/06"), "{all}");
 }
 
 #[test]
