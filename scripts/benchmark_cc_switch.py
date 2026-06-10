@@ -60,6 +60,10 @@ CI_TUI_OPERATIONS = {
 }
 
 
+class BenchmarkAbort(RuntimeError):
+    """Stop the remaining benchmark work after a CI-relevant failure."""
+
+
 def log(message: str) -> None:
     print(message, flush=True)
 
@@ -863,10 +867,24 @@ class RunResult:
     stderr: str
 
 
-def run_command(args: list[str], timeout: float = 60.0, input_text: str | None = None) -> RunResult:
+def run_command(
+    args: list[str],
+    timeout: float = 60.0,
+    input_text: str | None = None,
+    capture_timeout: bool = False,
+) -> RunResult:
     start = time.perf_counter()
-    proc = subprocess.run(args, input=input_text, text=True, capture_output=True, timeout=timeout)
-    return RunResult(proc.returncode, (time.perf_counter() - start) * 1000, proc.stdout, proc.stderr)
+    try:
+        proc = subprocess.run(args, input=input_text, text=True, capture_output=True, timeout=timeout)
+        return RunResult(proc.returncode, (time.perf_counter() - start) * 1000, proc.stdout, proc.stderr)
+    except subprocess.TimeoutExpired as exc:
+        if not capture_timeout:
+            raise
+        stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode("utf-8", errors="replace")
+        stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", errors="replace")
+        message = f"timed out after {timeout:.1f}s"
+        stderr = f"{message}\n{stderr}".strip()
+        return RunResult(-1, (time.perf_counter() - start) * 1000, stdout, stderr)
 
 
 def run_pty_command(args: list[str], send: bytes = b"", timeout: float = 60.0) -> RunResult:
@@ -1218,8 +1236,8 @@ class Metric:
         self.samples.append(ms)
 
     def fail(self, message: str) -> None:
-        lines = message.splitlines()
-        first = lines[0] if lines else (message.strip() or "unknown failure")
+        lines = [line.strip() for line in message.splitlines() if line.strip()]
+        first = " | ".join(lines[:3]) if lines else (message.strip() or "unknown failure")
         self.failures.append(first[:240])
 
     def summary(self) -> dict:
@@ -1371,12 +1389,24 @@ def wait_until_tui(session: TuiSession, predicate: Callable[[], bool], timeout: 
     raise TimeoutError("condition was not reached")
 
 
-def timed_cli(metrics: Metrics, binary: Path, surface: str, app: str, operation: str, args: list[str], timeout: float = 60.0) -> RunResult:
-    result = run_command([str(binary), *args], timeout=timeout)
+def timed_cli(
+    metrics: Metrics,
+    binary: Path,
+    surface: str,
+    app: str,
+    operation: str,
+    args: list[str],
+    timeout: float = 60.0,
+    fail_fast: bool = False,
+) -> RunResult:
+    result = run_command([str(binary), *args], timeout=timeout, capture_timeout=fail_fast)
     if result.code == 0:
         metrics.add(surface, app, operation, result.ms)
     else:
-        metrics.fail(surface, app, operation, (result.stderr or result.stdout or f"exit {result.code}"))
+        message = result.stderr or result.stdout or f"exit {result.code}"
+        metrics.fail(surface, app, operation, message)
+        if fail_fast:
+            raise BenchmarkAbort(f"{surface} {app} {operation} failed: {message}")
     return result
 
 
@@ -1394,39 +1424,50 @@ def benchmark_cli(
     warmup: int,
     first_sessions: tuple[str, str],
     operation_set: str,
+    fail_fast: bool,
 ) -> None:
     total = warmup + iterations
     cli_enabled = lambda operation: operation_enabled(operation_set, "CLI", operation)
     if cli_enabled("startup_version"):
         if operation_set == OPERATION_SET_CI_BLOCKING:
             for idx in range(total):
+                record = idx >= warmup
                 version_metrics = metrics if idx >= warmup else Metrics()
-                timed_cli(version_metrics, binary, "CLI", "global", "startup_version", ["--version"])
+                timed_cli(
+                    version_metrics,
+                    binary,
+                    "CLI",
+                    "global",
+                    "startup_version",
+                    ["--version"],
+                    fail_fast=fail_fast and record,
+                )
         else:
-            timed_cli(metrics, binary, "CLI", "global", "startup_version", ["--version"])
+            timed_cli(metrics, binary, "CLI", "global", "startup_version", ["--version"], fail_fast=fail_fast)
     for app, session_id in [("claude", first_sessions[0]), ("codex", first_sessions[1])]:
         a = f"{BENCH}-{app}-a"
         b = f"{BENCH}-{app}-b"
         reset_provider_cli(binary, app, a)
         for idx in range(total):
             record = idx >= warmup
+            log(f"  CLI {app} iteration {idx + 1}/{total}{' (warmup)' if not record else ''}...")
             prefix_metrics = metrics if record else Metrics()
             if cli_enabled("startup_provider_current"):
-                timed_cli(prefix_metrics, binary, "CLI", app, "startup_provider_current", ["--app", app, "provider", "current"])
+                timed_cli(prefix_metrics, binary, "CLI", app, "startup_provider_current", ["--app", app, "provider", "current"], fail_fast=fail_fast and record)
             if cli_enabled("provider_list"):
-                timed_cli(prefix_metrics, binary, "CLI", app, "provider_list", ["--app", app, "provider", "list"])
+                timed_cli(prefix_metrics, binary, "CLI", app, "provider_list", ["--app", app, "provider", "list"], fail_fast=fail_fast and record)
             if cli_enabled("usage_query_show"):
-                timed_cli(prefix_metrics, binary, "CLI", app, "usage_query_show", ["--app", app, "provider", "usage-query", "show", a, "--json"])
+                timed_cli(prefix_metrics, binary, "CLI", app, "usage_query_show", ["--app", app, "provider", "usage-query", "show", a, "--json"], fail_fast=fail_fast and record)
             if cli_enabled("sessions_list_json"):
-                timed_cli(prefix_metrics, binary, "CLI", app, "sessions_list_json", ["--app", app, "sessions", "list", "--json"])
+                timed_cli(prefix_metrics, binary, "CLI", app, "sessions_list_json", ["--app", app, "sessions", "list", "--json"], fail_fast=fail_fast and record)
             if cli_enabled("sessions_show_json"):
-                timed_cli(prefix_metrics, binary, "CLI", app, "sessions_show_json", ["--app", app, "sessions", "show", session_id, "--json"])
+                timed_cli(prefix_metrics, binary, "CLI", app, "sessions_show_json", ["--app", app, "sessions", "show", session_id, "--json"], fail_fast=fail_fast and record)
             if cli_enabled("sessions_messages_json"):
-                timed_cli(prefix_metrics, binary, "CLI", app, "sessions_messages_json", ["--app", app, "sessions", "messages", session_id, "--json"])
+                timed_cli(prefix_metrics, binary, "CLI", app, "sessions_messages_json", ["--app", app, "sessions", "messages", session_id, "--json"], fail_fast=fail_fast and record)
 
             if cli_enabled("provider_switch_a_to_b"):
                 reset_provider_cli(binary, app, a)
-                switched = timed_cli(prefix_metrics, binary, "CLI", app, "provider_switch_a_to_b", ["--app", app, "provider", "switch", b])
+                switched = timed_cli(prefix_metrics, binary, "CLI", app, "provider_switch_a_to_b", ["--app", app, "provider", "switch", b], fail_fast=fail_fast and record)
                 if switched.code != 0:
                     reset_provider_cli(binary, app, a)
                     continue
@@ -1435,14 +1476,17 @@ def benchmark_cli(
                 copy_id = f"{a}-copy"
                 remove_provider_prefix_direct(paths, app, copy_id)
                 add_metrics = prefix_metrics if cli_enabled("provider_duplicate_add") else Metrics()
-                add = timed_cli(add_metrics, binary, "CLI", app, "provider_duplicate_add", ["--app", app, "provider", "duplicate", a])
+                add = timed_cli(add_metrics, binary, "CLI", app, "provider_duplicate_add", ["--app", app, "provider", "duplicate", a], fail_fast=fail_fast and record)
                 if add.code == 0 and cli_enabled("provider_delete_copy"):
                     delete = run_pty_command([str(binary), "--app", app, "provider", "delete", copy_id], send=b"y\n", timeout=30)
                     if record:
                         if delete.code == 0:
                             metrics.add("CLI", app, "provider_delete_copy", delete.ms)
                         else:
-                            metrics.fail("CLI", app, "provider_delete_copy", delete.stdout or f"exit {delete.code}")
+                            message = delete.stdout or f"exit {delete.code}"
+                            metrics.fail("CLI", app, "provider_delete_copy", message)
+                            if fail_fast and record:
+                                raise BenchmarkAbort(f"CLI {app} provider_delete_copy failed: {message}")
             reset_provider_cli(binary, app, a)
 
 
@@ -1527,12 +1571,21 @@ def tui_select_row(session: TuiSession, index: int) -> None:
         session.key(b"\x1b[B", 0.04)
 
 
-def tui_providers_marker(screen: str) -> bool:
-    return "API URL" in screen and (
-        "Space=switch" in screen
-        or "Space=切换" in screen
-        or "Space=add/remove" in screen
-    )
+def tui_providers_marker(screen: str, app: str | None = None) -> bool:
+    def has_provider_pair(target_app: str) -> bool:
+        compact_screen = screen.replace(" ", "")
+        app_title = target_app.title()
+        current_url = f"https://bench-{target_app}-a." in screen
+        alternate_provider = (
+            f"bench-{target_app}-b." in screen
+            or f"Bench{app_title}B" in compact_screen
+            or f"{BENCH}-{target_app}-b" in screen
+        )
+        return current_url and alternate_provider
+
+    if app is not None:
+        return has_provider_pair(app)
+    return has_provider_pair("claude") or has_provider_pair("codex")
 
 
 def tui_sessions_loaded_marker(screen: str, app: str | None = None) -> bool:
@@ -1562,7 +1615,15 @@ def tui_sessions_route_marker(screen: str, app: str) -> bool:
     )
 
 
-def benchmark_tui(metrics: Metrics, binary: Path, paths: Paths, iterations: int, warmup: int, operation_set: str) -> None:
+def benchmark_tui(
+    metrics: Metrics,
+    binary: Path,
+    paths: Paths,
+    iterations: int,
+    warmup: int,
+    operation_set: str,
+    fail_fast: bool,
+) -> None:
     total = warmup + iterations
     nav = {"providers": 1, "sessions": 4, "usage": 6}
     tui_enabled = lambda operation: operation_enabled(operation_set, "TUI", operation)
@@ -1586,14 +1647,17 @@ def benchmark_tui(metrics: Metrics, binary: Path, paths: Paths, iterations: int,
     def run_tui_op(app: str, operation: str, record: bool, body: Callable[[TuiSession], float | None]) -> None:
         session: TuiSession | None = None
         try:
-            log(f"  TUI {app} {operation}...")
+            log(f"  TUI {app} {operation}{' (warmup)' if not record else ''}...")
             session, _ = start_session(app)
             ms = body(session)
             if record and ms is not None:
                 metrics.add("TUI", app, operation, ms)
         except Exception as exc:
             if record:
-                metrics.fail("TUI", app, operation, str(exc))
+                message = str(exc)
+                metrics.fail("TUI", app, operation, message)
+                if fail_fast:
+                    raise BenchmarkAbort(f"TUI {app} {operation} failed: {message}") from exc
         finally:
             if session is not None:
                 session.close()
@@ -1609,18 +1673,25 @@ def benchmark_tui(metrics: Metrics, binary: Path, paths: Paths, iterations: int,
                 reset_provider_cli(binary, app, a)
             except Exception as exc:
                 if record:
-                    metrics.fail("TUI", app, "provider_switch_a_to_b", str(exc))
+                    message = str(exc)
+                    metrics.fail("TUI", app, "provider_switch_a_to_b", message)
+                    if fail_fast:
+                        raise BenchmarkAbort(f"TUI {app} provider_switch_a_to_b setup failed: {message}") from exc
                 continue
 
             session: TuiSession | None = None
             if tui_enabled("startup_interactive"):
                 try:
+                    log(f"  TUI {app} startup_interactive iteration {idx + 1}/{total}{' (warmup)' if not record else ''}...")
                     session, startup_ms = start_session(app)
                     if record:
                         metrics.add("TUI", app, "startup_interactive", startup_ms)
                 except Exception as exc:
                     if record:
-                        metrics.fail("TUI", app, "startup_interactive", str(exc))
+                        message = str(exc)
+                        metrics.fail("TUI", app, "startup_interactive", message)
+                        if fail_fast:
+                            raise BenchmarkAbort(f"TUI {app} startup_interactive failed: {message}") from exc
                 finally:
                     if session is not None:
                         session.close()
@@ -1692,7 +1763,7 @@ def benchmark_tui(metrics: Metrics, binary: Path, paths: Paths, iterations: int,
                     session,
                     0,
                     nav["providers"],
-                    tui_providers_marker,
+                    lambda s: tui_providers_marker(s, app),
                 )[1]
 
             if tui_enabled("open_providers"):
@@ -1703,7 +1774,7 @@ def benchmark_tui(metrics: Metrics, binary: Path, paths: Paths, iterations: int,
                     session,
                     0,
                     nav["providers"],
-                    tui_providers_marker,
+                    lambda s: tui_providers_marker(s, app),
                 )
                 tui_select_provider(session, b, b_name)
                 session.clear()
@@ -1715,6 +1786,10 @@ def benchmark_tui(metrics: Metrics, binary: Path, paths: Paths, iterations: int,
             if tui_enabled("provider_switch_a_to_b"):
                 reset_provider_cli(binary, app, a)
                 run_tui_op(app, "provider_switch_a_to_b", record, switch_body)
+                try:
+                    reset_provider_cli(binary, app, a)
+                except Exception:
+                    pass
 
             def copy_delete_body(session: TuiSession) -> float:
                 copy_id_prefix = f"{a}-copy"
@@ -1725,7 +1800,7 @@ def benchmark_tui(metrics: Metrics, binary: Path, paths: Paths, iterations: int,
                     session,
                     0,
                     nav["providers"],
-                    tui_providers_marker,
+                    lambda s: tui_providers_marker(s, app),
                 )
                 tui_select_provider(session, a, a_name)
                 sequence_start = time.perf_counter()
@@ -1765,7 +1840,6 @@ def benchmark_tui(metrics: Metrics, binary: Path, paths: Paths, iterations: int,
                 if record:
                     metrics.add("TUI", app, "provider_copy_add", copy_ms)
 
-                session.wait_for(tui_providers_marker, timeout=8)
                 session.wait_for(
                     lambda s: copy_name in s or copy_name.replace(" ", "") in s or copy_id in s,
                     timeout=8,
@@ -1830,6 +1904,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--operation-set", choices=[OPERATION_SET_FULL, OPERATION_SET_CI_BLOCKING], default=OPERATION_SET_FULL)
     parser.add_argument("--real-env", action="store_true", help="Run against the real user environment after taking a snapshot. Default is a temporary sandbox.")
     parser.add_argument("--redact-paths", action="store_true", help="Redact local filesystem paths from the JSON result.")
+    parser.add_argument("--fail-fast", action="store_true", help="Stop after the first recorded benchmark failure but still write results.")
     parser.add_argument("--json-output", type=Path)
     return parser.parse_args()
 
@@ -1880,12 +1955,15 @@ def main() -> int:
 
         log("Seeding benchmark providers, usage, sessions, MCP servers, and skills...")
         first_sessions = seed_data(paths, args.providers_per_app, args.usage_rows, args.sessions_per_app, args.mcp_rows, args.skill_rows)
-        if not args.skip_cli:
-            log("Running CLI benchmarks...")
-            benchmark_cli(metrics, binary, paths, args.iterations, args.warmup, first_sessions, args.operation_set)
-        if not args.skip_tui:
-            log("Running TUI benchmarks...")
-            benchmark_tui(metrics, binary, paths, args.iterations, args.warmup, args.operation_set)
+        try:
+            if not args.skip_cli:
+                log("Running CLI benchmarks...")
+                benchmark_cli(metrics, binary, paths, args.iterations, args.warmup, first_sessions, args.operation_set, args.fail_fast)
+            if not args.skip_tui:
+                log("Running TUI benchmarks...")
+                benchmark_tui(metrics, binary, paths, args.iterations, args.warmup, args.operation_set, args.fail_fast)
+        except BenchmarkAbort as exc:
+            log(f"Benchmark stopped after recorded failure: {exc}")
         summaries = metrics.summaries()
         if args.redact_paths:
             replacements = {

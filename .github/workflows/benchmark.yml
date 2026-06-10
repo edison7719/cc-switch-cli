@@ -70,6 +70,7 @@ jobs:
             --mcp-rows 4 \
             --skill-rows 4 \
             --redact-paths \
+            --fail-fast \
             --json-output benchmark-results.json
 
       - name: Check benchmark thresholds
